@@ -1,5 +1,5 @@
-from modules.abc import add
+from modules.pitch_extractor import Calculator
 
-c = add(1, 2)
+c = Calculator.add(1, 2)
 
 print(c)
