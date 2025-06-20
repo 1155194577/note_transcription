@@ -56,14 +56,6 @@ class PitchExtractor:
         '''
 
         cmndf = np.ones_like(difference)
-        # cum_sum = 0.0
-        # for tau in range(len(difference)):
-        #     cum_sum += difference[tau]
-        #     if tau == 0:
-        #         cmndf[tau] = 1.0
-        #     if cum_sum > 0:
-        #         cmndf[tau] = difference[tau] * tau / cum_sum
-        #     else: cmndf[tau] = 1.0
         cum_sum = np.cumsum(difference)
         normalized = (difference * np.arange(len(difference))) / (cum_sum + 1e-10)
         cmndf[cum_sum > 0] = normalized[cum_sum > 0]
@@ -87,10 +79,8 @@ class PitchExtractor:
             if cmndf_vals[tau] < self.threshold and \
                 cmndf_vals[tau] < cmndf_vals[tau + 1] and \
                 cmndf_vals[tau] < cmndf_vals[tau - 1]:
-                print(tau)
                 F0 = self.sample_rate / tau if tau != 0 else 0
                 return F0
         tau = np.argmin(cmndf_vals[1:])
-        print(tau)
         F0 = self.sample_rate / tau if tau != 0 else 0
         return F0
