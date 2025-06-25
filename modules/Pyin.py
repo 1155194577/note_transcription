@@ -12,7 +12,7 @@ class PitchExtractor:
                  n_thresholds = 100, 
                  beta_params = (2, 18),
                  boltzmann_param = 2,
-                 no_local_minimum_prob = 0.1):
+                 no_local_minimum_prob = 0.):
         self.sample_rate = sample_rate
         self.window_size = window_size
         self.hop_size = hop_size
@@ -87,7 +87,7 @@ class PitchExtractor:
         
         return local_minimas, local_minimas_probs
     
-    def _frame_wise_pitch_extraction(self, frame: np.ndarray) -> list:
+    def _frame_wise_pitch_extraction(self, frame: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         cmndf_vals = self._cumulative_mean_normalized_difference_function(self._difference_function(frame))
         original_local_minima, original_minima_index = self._find_local_minimas(cmndf_vals)
         filtered_local_minima, filtered_minima_index = self._filter_local_minimas(original_local_minima, original_minima_index)
@@ -101,12 +101,14 @@ class PitchExtractor:
             return [(f0, self.no_local_minimum_prob)]
     
         f0_candidates = []
+        f0_probs = []
 
         for idx in range(len(local_minima)):
             f0 = self.sample_rate / filtered_minima_index[idx]
-            f0_candidates.append((f0, local_minima_probs[idx]))
+            f0_candidates.append(f0)
+            f0_probs.append(local_minima_probs[idx])
 
-        return f0_candidates
+        return np.array(f0_candidates), np.array(f0_probs)
     
     def signal_pitch_extraction(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         pass         
