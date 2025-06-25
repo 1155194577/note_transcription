@@ -14,7 +14,7 @@ class PitchExtractor:
                  boltzmann_param = 2,
                  no_local_minimum_prob = 0.1):
         self.sample_rate = sample_rate
-        self.W = window_size
+        self.window_size = window_size
         self.hop_size = hop_size
         self.fmin = fmin
         self.fmax = fmax
@@ -59,7 +59,7 @@ class PitchExtractor:
         local_minimas = cmndf[local_minimas_index]
         return local_minimas, local_minimas_index
 
-    def _filter_local_minimas(self, local_minima:np.ndarray, local_minima_index: np.ndarray) -> np.ndarray:
+    def _filter_local_minimas(self, local_minima:np.ndarray, local_minima_index: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         filtered = np.array([])
         index = np.array([]).astype(int)
         for minima_index in local_minima_index:
@@ -83,8 +83,20 @@ class PitchExtractor:
         
         return local_minimas, local_minimas_probs
     
-    def _frame_wise_pitch_extraction(self, frame: np.ndarray) -> np.ndarray:
-        pass
+    def _frame_wise_pitch_extraction(self, frame: np.ndarray) -> list:
+        cmndf_vals = self._cumulative_mean_normalized_difference_function(self._difference_function(frame))
+        original_local_minima, original_minima_index = self._find_local_minimas(cmndf_vals)
+        filtered_local_minima, filtered_minima_index = self._filter_local_minimas(original_local_minima, original_minima_index)
+
+        local_minima, local_minima_probs = self._assign_probabilities(filtered_local_minima, filtered_minima_index)
+
+        f0_candidates = []
+
+        for idx in range(len(local_minima)):
+            f0 = self.sample_rate / filtered_minima_index[idx]
+            f0_candidates.append((f0, local_minima_probs[idx]))
+
+        return f0_candidates
     
     def signal_pitch_extraction(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         pass         
