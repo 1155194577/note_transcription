@@ -11,7 +11,8 @@ class PitchExtractor:
                  fmax = 2093, 
                  n_thresholds = 100, 
                  beta_params = (2, 18),
-                 boltzmann_param = 2):
+                 boltzmann_param = 2,
+                 no_local_minimum_prob = 0.1):
         self.sample_rate = sample_rate
         self.W = window_size
         self.hop_size = hop_size
@@ -20,6 +21,7 @@ class PitchExtractor:
         self.n_thresholds = n_thresholds
         self.beta_params = beta_params
         self.boltzmann_param = boltzmann_param
+        self.no_local_minimum_prob = no_local_minimum_prob
 
         # thresholds from 0 to 1, step = 0.01
         self.thresholds = np.linspace(0, 1, self.n_thresholds + 1)
@@ -58,18 +60,20 @@ class PitchExtractor:
         return local_minimas, local_minimas_index
 
     def _filter_local_minimas(self, local_minima:np.ndarray, local_minima_index: np.ndarray) -> np.ndarray:
-        filtered = np.array([]).astype(int)
+        filtered = np.array([])
+        index = np.array([]).astype(int)
         for minima_index in local_minima_index:
             if self.min_lag < minima_index < self.max_lag:
+                index = np.append(index, minima_index)
                 filtered = np.append(filtered, local_minima[np.where(local_minima_index == minima_index)])
-        return filtered
+        return filtered, index
     
     def _normalization(self, local_minimas: np.ndarray, below_threshold: np.ndarray) -> np.ndarray:
         position = np.arange(len(local_minimas))[below_threshold]
         probs = boltzmann.pmf(position, self.boltzmann_param, len(local_minimas))
         return probs
 
-    def _assign_probabilities(self, local_minimas: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _assign_probabilities(self, local_minimas: np.ndarray, local_minima_index: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         local_minimas_probs = np.zeros_like(local_minimas)
         for i, threshold in enumerate(self.thresholds[1:]):
             below_threshold = local_minimas < threshold
