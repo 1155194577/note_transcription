@@ -98,7 +98,7 @@ class PitchExtractor:
         if len(filtered_local_minima) == 0:
             global_min_idx = np.argmin(cmndf_vals[self.min_lag:self.max_lag]) + self.min_lag
             f0 = self.sample_rate / global_min_idx
-            return [(f0, self.no_local_minimum_prob)]
+            return np.array([f0]), np.array([self.no_local_minimum_prob])
     
         f0_candidates = []
         f0_probs = []
