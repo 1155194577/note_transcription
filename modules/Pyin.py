@@ -111,4 +111,14 @@ class PitchExtractor:
         return np.array(f0_candidates), np.array(f0_probs)
     
     def signal_pitch_extraction(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        pass         
+        frames = audio.split_audio(signal, self.window_size, self.hop_size)
+        n_frames = len(frames)
+
+        time_series = (np.arange(n_frames) * self.hop_size + self.W // 2) / self.sample_rate
+        f0 = []
+        for frame in frames:
+            f0_candidates, f0_probs = self._frame_wise_pitch_extraction(frame)
+            index = np.argmax(f0_probs)
+            f0.append(f0_candidates[index])
+
+        return time_series, np.array(f0)
