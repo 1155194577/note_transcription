@@ -68,7 +68,7 @@ class PitchExtractor:
                 filtered = np.append(filtered, local_minima[np.where(local_minima_index == minima_index)])
         return filtered, index
     
-    def _normalization(self, local_minimas: np.ndarray, below_threshold: np.ndarray) -> np.ndarray:
+    def _boltzmann(self, local_minimas: np.ndarray, below_threshold: np.ndarray) -> np.ndarray:
         position = np.arange(len(local_minimas))[below_threshold]
         probs = boltzmann.pmf(position, self.boltzmann_param, len(local_minimas))
         return probs
@@ -78,8 +78,12 @@ class PitchExtractor:
         for i, threshold in enumerate(self.thresholds[1:]):
             below_threshold = local_minimas < threshold
             if np.any(below_threshold):
-                probs = self._normalization(local_minimas, below_threshold)
+                probs = self._boltzmann(local_minimas, below_threshold)
                 local_minimas_probs[below_threshold] += probs * self.beta_prob[i]
+
+        total_prob = np.sum(local_minimas_probs)
+        if total_prob > 0:
+            local_minimas_probs = local_minimas_probs * (1 - self.no_local_minimum_prob) / total_prob
         
         return local_minimas, local_minimas_probs
     
@@ -90,6 +94,12 @@ class PitchExtractor:
 
         local_minima, local_minima_probs = self._assign_probabilities(filtered_local_minima, filtered_minima_index)
 
+        # if no local minima
+        if len(filtered_local_minima) == 0:
+            global_min_idx = np.argmin(cmndf_vals[self.min_lag:self.max_lag]) + self.min_lag
+            f0 = self.sample_rate / global_min_idx
+            return [(f0, self.no_local_minimum_prob)]
+    
         f0_candidates = []
 
         for idx in range(len(local_minima)):
