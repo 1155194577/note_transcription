@@ -51,18 +51,18 @@ class PitchExtractor:
         cmndf[0] = 1.0
         return cmndf
     
-    def _find_local_minimas(self, cmndf: np.ndarray) -> np.ndarray:
-        is_local_minimas = np.full(cmndf.shape, False)
-        for tau in range(1, len(cmndf) - 1):
-            if cmndf[tau] < cmndf[tau + 1] and \
-                cmndf[tau] < cmndf[tau - 1]:
-                is_local_minimas[tau] = True
+    def _find_local_minimas(self, cmndf: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        is_local_minimas = np.r_[False, (cmndf[1:-1] < cmndf[:-2]) & (cmndf[1:-1] < cmndf[2:]), False]
         local_minimas_index = np.where(is_local_minimas)[0]
         local_minimas = cmndf[local_minimas_index]
-        return local_minimas
+        return local_minimas, local_minimas_index
 
-    def _filter_local_minimas(self, local_minimas: np.ndarray) -> np.ndarray:
-        return local_minimas[self.min_lag: self.max_lag]
+    def _filter_local_minimas(self, local_minima:np.ndarray, local_minima_index: np.ndarray) -> np.ndarray:
+        filtered = np.array([]).astype(int)
+        for minima_index in local_minima_index:
+            if self.min_lag < minima_index < self.max_lag:
+                filtered = np.append(filtered, local_minima[np.where(local_minima_index == minima_index)])
+        return filtered
     
     def _normalization(self, local_minimas: np.ndarray, below_threshold: np.ndarray) -> np.ndarray:
         position = np.arange(len(local_minimas))[below_threshold]
