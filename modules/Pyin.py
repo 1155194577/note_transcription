@@ -15,7 +15,7 @@ class PitchExtractor:
                  no_local_minimum_prob = 0.):
         self.sample_rate = sample_rate
         self.window_size = window_size
-        self.hop_size = hop_size
+        self.hop_size = hop_size if hop_size is not None else window_size // 4
         self.fmin = fmin
         self.fmax = fmax
         self.n_thresholds = n_thresholds
@@ -114,7 +114,7 @@ class PitchExtractor:
         frames = audio.split_audio(signal, self.window_size, self.hop_size)
         n_frames = len(frames)
 
-        time_series = (np.arange(n_frames) * self.hop_size + self.W // 2) / self.sample_rate
+        time_series = (np.arange(n_frames) * self.hop_size + self.window_size // 2) / self.sample_rate
         f0 = []
         for frame in frames:
             f0_candidates, f0_probs = self._frame_wise_pitch_extraction(frame)
