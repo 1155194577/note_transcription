@@ -1,4 +1,4 @@
-from modules.yin import PyinPitchExtractor
+from modules.Pyin import PyinPitchExtractor
 import numpy as np
 from util.audio import hz_to_midi, midi_to_hz
 
@@ -48,7 +48,11 @@ class PitchSmoother(PyinPitchExtractor):
 
     def _build_pitch_transition_matrix(self):
         pitch_trans = np.zeros((self.n_bins, self.n_bins))
-        
+        for i in range(self.n_bins):
+            for j in range(self.n_bins):
+                if abs(i - j) <= self.max_jump_bins:
+                    pitch_trans[i, j] = max(0, self.max_jump_bins + 1 - abs(i - j))
+        pitch_trans = pitch_trans / (pitch_trans.sum(axis=1, keepdims=True) + 1e-12)
         return pitch_trans
 
     def _build_voice_transition_matrix(self):
