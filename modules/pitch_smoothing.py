@@ -47,7 +47,7 @@ def smooth_pitch_track(candidate_freqs, candidate_probs, sample_rate, fmin, fmax
         if len(candidate_freqs[t]) == 0:
             obs_probs[t, n_bins:] = 1.0  # all unvoiced
             continue
-        midi_cands = hz_to_midi(candidate_freqs[t])
+        midi_cands = hz_to_midi(candidate_freqs[t]) # transfer candidate freq to midi note number
         bin_idx = np.clip(np.digitize(midi_cands, bin_edges) - 1, 0, n_bins - 1)
         # Voiced: assign half the candidate probability to the corresponding bin
         for i, idx in enumerate(bin_idx):
