@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Tuple
 from util import audio
+from modules.PitchSmoother import PitchSmoother
 
 class YinPitchExtractor:
     def __init__(self, sample_rate=22050, 
@@ -51,7 +52,7 @@ class YinPitchExtractor:
                 index = np.append(index, minima_index)
                 filtered = np.append(filtered, local_minima[np.where(local_minima_index == minima_index)])
         return filtered, index.astype(int)
-    
+        
     def _assign_probabilities(self, local_minimas: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Basic YIN probability assignment"""
         probs = 1 - local_minimas
@@ -83,10 +84,16 @@ class YinPitchExtractor:
         n_frames = len(frames)
 
         time_series = (np.arange(n_frames) * self.hop_size + self.window_size // 2) / self.sample_rate
-        f0 = []
-        for frame in frames:
-            f0_candidates, f0_probs = self._frame_wise_pitch_extraction(frame)
-            index = np.argmax(f0_probs)
-            f0.append(f0_candidates[index])
+        f0 = [] # list of a sequence of frame-wise f0 candidates freqs
+        f0_probs = [] # corresponding probs above
 
-        return time_series, np.array(f0)
+        for frame in frames:
+            f0_candidate, prob = self._frame_wise_pitch_extraction(frame)
+            f0.append(f0_candidate)
+            f0_probs.append(prob)
+
+        pitch_smoother = PitchSmoother(f0, f0_probs)
+        states = pitch_smoother._viterbi_decoding()
+        f0_candidates = pitch_smoother._state_to_freq(states)
+
+        return time_series, f0_candidates

@@ -5,15 +5,9 @@ from scipy.stats import beta, boltzmann
 from typing import Tuple
 from modules.yin import YinPitchExtractor
 class PyinPitchExtractor(YinPitchExtractor):
-    def __init__(self, sample_rate=22050, 
-                 window_size=2048, 
-                 hop_size=None,
-                 fmin=65, 
-                 fmax=2093, 
-                 n_thresholds=100, 
-                 beta_params=(2, 18),
-                 boltzmann_param=2, 
-                 no_local_minimum_prob=0.):
+    def __init__(self, sample_rate=22050, window_size=2048, hop_size=None,
+                 fmin=65, fmax=2093, n_thresholds=100, beta_params=(2, 18),
+                 boltzmann_param=2, no_local_minimum_prob=0.):
         super().__init__(
             sample_rate=sample_rate,
             window_size=window_size,
