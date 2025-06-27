@@ -62,7 +62,10 @@ class PyinPitchExtractor(YinPitchExtractor):
             f0_probs.append(prob)
 
         pitch_smoother = PitchSmoother(f0, f0_probs)
+        obs_matrix = pitch_smoother._build_observation_matrix()
+        print("First row of obs_matrix:", obs_matrix[0])  # Debug print
         states = pitch_smoother._viterbi_decoding()
-        f0_candidates = pitch_smoother._state_to_freq(states)
+        print("Viterbi state indices:", states)  # Debug print
+        f0_candidates = pitch_smoother._state_to_freq(states, obs_matrix=obs_matrix, voicing_threshold=0.5)
 
-        return time_series, f0_candidates
+        return f0_candidates, obs_matrix
