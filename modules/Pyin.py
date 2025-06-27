@@ -4,10 +4,12 @@ from util import audio
 from scipy.stats import beta, boltzmann
 from typing import Tuple
 from modules.yin import YinPitchExtractor
+from modules.PitchSmoother import PitchSmoother
+
 class PyinPitchExtractor(YinPitchExtractor):
     def __init__(self, sample_rate=22050, window_size=2048, hop_size=None,
                  fmin=65, fmax=2093, n_thresholds=100, beta_params=(2, 18),
-                 boltzmann_param=2, no_local_minimum_prob=0.):
+                 boltzmann_param=2, no_local_minimum_prob=0.01):
         super().__init__(
             sample_rate=sample_rate,
             window_size=window_size,
@@ -45,3 +47,22 @@ class PyinPitchExtractor(YinPitchExtractor):
             local_minimas_probs = local_minimas_probs * (1 - self.no_local_minimum_prob) / total_prob
         
         return local_minimas, local_minimas_probs
+    
+    def signal_pitch_extraction(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        frames = audio.split_audio(signal, self.window_size, self.hop_size)
+        n_frames = len(frames)
+
+        time_series = (np.arange(n_frames) * self.hop_size + self.window_size // 2) / self.sample_rate
+        f0 = [] # list of a sequence of frame-wise f0 candidates freqs
+        f0_probs = [] # corresponding probs above
+
+        for frame in frames:
+            f0_candidate, prob = self._frame_wise_pitch_extraction(frame)
+            f0.append(f0_candidate)
+            f0_probs.append(prob)
+
+        pitch_smoother = PitchSmoother(f0, f0_probs)
+        states = pitch_smoother._viterbi_decoding()
+        f0_candidates = pitch_smoother._state_to_freq(states)
+
+        return time_series, f0_candidates

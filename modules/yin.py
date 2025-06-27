@@ -1,7 +1,6 @@
 import numpy as np
 from typing import Tuple
 from util import audio
-from modules.PitchSmoother import PitchSmoother
 
 class YinPitchExtractor:
     def __init__(self, sample_rate=22050, 
@@ -38,6 +37,15 @@ class YinPitchExtractor:
         cmndf[0] = 1.0
         return cmndf
     
+    def _parabolic_interpolation(self, cmndf: np.ndarray, index: int):
+        alpha = cmndf[index - 1]
+        beta = cmndf[index]
+        gamma = cmndf[index + 1]
+
+        if (2 * beta - alpha - gamma) == 0:
+            return index
+        return index + (gamma - alpha) / (2 * (2 * beta - alpha - gamma))
+    
     def _find_local_minimas(self, cmndf: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         is_local_minimas = np.r_[False, (cmndf[1:-1] < cmndf[:-2]) & (cmndf[1:-1] < cmndf[2:]), False]
         local_minimas_index = np.where(is_local_minimas)[0]
@@ -69,6 +77,9 @@ class YinPitchExtractor:
         local_minima, minima_index = self._find_local_minimas(cmndf_vals)
         filtered_minima, filtered_index = self._filter_local_minimas(local_minima, minima_index)
 
+        for idx in filtered_index:
+            idx = self._parabolic_interpolation(cmndf_vals, idx)
+
         if len(filtered_minima) == 0:
             global_min_idx = np.argmin(cmndf_vals[self.min_lag:self.max_lag]) + self.min_lag
             f0 = self.sample_rate / global_min_idx
@@ -85,15 +96,10 @@ class YinPitchExtractor:
 
         time_series = (np.arange(n_frames) * self.hop_size + self.window_size // 2) / self.sample_rate
         f0 = [] # list of a sequence of frame-wise f0 candidates freqs
-        f0_probs = [] # corresponding probs above
 
         for frame in frames:
             f0_candidate, prob = self._frame_wise_pitch_extraction(frame)
-            f0.append(f0_candidate)
-            f0_probs.append(prob)
+            index = np.argmax(prob)
+            f0.append(f0_candidate[index])
 
-        pitch_smoother = PitchSmoother(f0, f0_probs)
-        states = pitch_smoother._viterbi_decoding()
-        f0_candidates = pitch_smoother._state_to_freq(states)
-
-        return time_series, f0_candidates
+        return time_series, np.array(f0)

@@ -89,7 +89,7 @@ class PitchSmoother():
         log_trans_matrix = np.log(self._build_transition_matrix() + 1e-12)
         log_obs_matrix = np.log(self._build_observation_matrix() + 1e-12) 
 
-        viterbi = np.zeros((self.n_frames, 2 * self.n_bins)) # store logged prob
+        viterbi = np.full((self.n_frames, 2 * self.n_bins), -np.inf) # store logged prob
         backpathpointer = np.zeros((self.n_frames, 2 * self.n_bins), dtype=int) # store best path pointer
         beststates = np.zeros(self.n_frames, dtype=int) # store best path/states -> which bin is the best in each frame
 
