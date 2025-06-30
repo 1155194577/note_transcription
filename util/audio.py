@@ -9,10 +9,6 @@ def midi_to_hz(midi):
     """Convert MIDI note number to frequency in Hz. e.g. 69 -> 440Hz"""
     return 440.0 * 2 ** ((midi - 69) / 12)
 
-def bin_to_frequency(bin_idx, fmin, n_bins_per_semitone):
-    '''Convert pitch bin index to frequency'''
-    return fmin * 2 ** (bin_idx / (12 * n_bins_per_semitone))
-
 def split_audio(y: np.ndarray, frame_length: int, hop_size: int) -> list[np.ndarray]:
     """
     Split an audio signal into overlapping frames.
