@@ -4,7 +4,6 @@ from util import audio
 from scipy.stats import beta, boltzmann
 from typing import Tuple
 from modules.yin import YinPitchExtractor
-from modules.PitchSmoother import PitchSmoother
 
 class PyinPitchExtractor(YinPitchExtractor):
     def __init__(self, 
@@ -91,7 +90,7 @@ class PyinPitchExtractor(YinPitchExtractor):
         
         return f0_candidates, probs
     
-    def signal_pitch_extraction(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def signal_pitch_extraction(self, signal: np.ndarray) -> Tuple[list, list, np.ndarray]:
         frames = audio.split_audio(signal, self.window_size, self.hop_size)
         n_frames = len(frames)
 
@@ -103,10 +102,4 @@ class PyinPitchExtractor(YinPitchExtractor):
             f0_candidate, prob = self._frame_wise_pitch_extraction(frame)
             f0.append(f0_candidate)
             f0_probs.append(prob)
-
-        pitch_smoother = PitchSmoother(f0, f0_probs)
-        obs_matrix = pitch_smoother._build_observation_matrix()
-        states = pitch_smoother._viterbi_decoding()
-        f0_candidates = pitch_smoother._state_to_freq(states, obs_matrix=obs_matrix, voicing_threshold=0.5)
-
-        return f0_candidates, f0_probs, time_series
+        return f0, f0_probs, time_series
