@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 # Transfer continuous pitches to discrete notes
 class NoteSegmentation():
     def __init__(self, 
-                 pitch_estimates,
                  sample_rate = 22050,
                  frame_length = 2048,
                  hop_size = None,
@@ -17,11 +16,10 @@ class NoteSegmentation():
                  v = 0.5,
                  sigma_attack = 5,
                  sigma_stable = 0.9):
-        self.pitch_estimates = pitch_estimates # smoothed f0 candidates (Hz), shape: (n_frames, )
-
         self.sample_rate = sample_rate
         self.frame_length = frame_length
         self.hop_size = hop_size if hop_size is not None else frame_length // 4
+        self.frame_time = self.frame_length / self.sample_rate # seconds
 
         self.states_type = ["Attack", "Stable", "Silence"] # 0: attack, 1: stable, 2: silence
 
@@ -91,14 +89,14 @@ class NoteSegmentation():
         trans_probs = trans_probs / np.sum(trans_probs, axis=1, keepdims=True)  # Normalize each row to sum to 1
         return trans_probs
 
-    def _build_observation_matrix(self):
+    def _build_observation_matrix(self, pitch_estimates):
         # frames * states
         states = self._build_state()
         n_states = len(states)
-        n_frames = len(self.pitch_estimates)
+        n_frames = len(pitch_estimates)
         obs_probs = np.zeros((n_frames, n_states))
 
-        pitches = np.round(audio.hz_to_midi(self.pitch_estimates), 3)
+        pitches = np.round(audio.hz_to_midi(pitch_estimates), 3)
 
         for t in range(n_frames):
             pitch = pitches[t]
@@ -131,9 +129,9 @@ class NoteSegmentation():
 
         return obs_probs
 
-    def _viterbi_decoding(self):
+    def _viterbi_decoding(self, pitch_estimates):
         log_trans_matrix = np.log(self._build_transition_matrix() + 1e-12)
-        log_obs_matrix = np.log(self._build_observation_matrix() + 1e-12)
+        log_obs_matrix = np.log(self._build_observation_matrix(pitch_estimates) + 1e-12)
         n_frames, n_states = log_obs_matrix.shape
 
         viterbi = np.full((n_frames, n_states), -np.inf)
@@ -157,3 +155,6 @@ class NoteSegmentation():
         print(beststates)
 
         return beststates
+    
+    def post_process(self, states):
+        pass
