@@ -1,5 +1,6 @@
 import numpy as np
 from util.audio import midi_to_hz
+import matplotlib.pyplot as plt
 
 # Transfer continuous pitches to discrete notes
 class NoteSegmentation():
@@ -98,3 +99,16 @@ class NoteSegmentation():
         trans_probs = self._build_transition_matrix()
         obs_probs = self._build_observation_matrix()
         pass
+
+    def plot_transition_matrix(self):
+        trans_matrix = self._build_transition_matrix()
+        # Plot a subset of the transition matrix for better visibility
+        subset_size = 30  # Number of states to show (change as needed)
+        plt.figure(figsize=(8, 6))
+        plt.imshow(trans_matrix[:subset_size, :subset_size], aspect='auto', origin='lower', interpolation='nearest', cmap='magma')
+        plt.colorbar(label='Transition Probability')
+        plt.xlabel('Next State Index (subset)')
+        plt.ylabel('Current State Index (subset)')
+        plt.title(f'Transition Matrix Subset (First {subset_size} States)')
+        plt.tight_layout()
+        plt.show()
