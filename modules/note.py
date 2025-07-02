@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from modules.NoteSegmentation import NoteSegmentation
+from NoteSegmentation import NoteSegmentation
 
 # in project root directory use : python3 -m modules.note
 # Demo/example usage for plotting everything in NoteSegmentation

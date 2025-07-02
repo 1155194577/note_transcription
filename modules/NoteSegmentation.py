@@ -1,5 +1,5 @@
 import numpy as np
-from util.audio import midi_to_hz
+from util import audio
 import matplotlib.pyplot as plt
 
 # Transfer continuous pitches to discrete notes
@@ -17,18 +17,18 @@ class NoteSegmentation():
                  v = 0.5,
                  sigma_attack = 5,
                  sigma_stable = 0.9):
-        self.pitch_estimates = pitch_estimates # smoothed f0 candidates, shape: (n_frames, )
+        self.pitch_estimates = pitch_estimates # smoothed f0 candidates (Hz), shape: (n_frames, )
 
         self.sample_rate = sample_rate
         self.frame_length = frame_length
         self.hop_size = hop_size if hop_size is not None else frame_length // 4
 
-        self.states_type = ["Attack", "Stable", "Silence"]
+        self.states_type = ["Attack", "Stable", "Silence"] # 0: attack, 1: stable, 2: silence
 
         self.min_midi = min_midi
         self.max_midi = max_midi
         self.steps_per_semitone = steps_per_semitone # 3 steps per semitone, (60, 60.333, 60.666, ...)
-        self.n_pitches = n_pitches # number of discrete pitches (207), but has 9-semitones interval up and down
+        self.n_pitches = n_pitches # number of discrete pitches (207), has 9-semitones buffer up and down
 
         self.v = v # prior prob for voiced frame
         self.obs_tau = obs_tau # observation tau
@@ -38,14 +38,14 @@ class NoteSegmentation():
     def _build_state(self):
         states = []
 
-        midi_buffer = (self.n_pitches - (self.max_midi - self.min_midi + 1) * 3) / self.steps_per_semitone / 2
+        # MIDI buffer to ensure that the range of MIDI values is sufficient
+        # to cover the range of pitches, considering the steps per semitone.
+        midi_buffer = ((self.n_pitches - (self.max_midi - self.min_midi + 1) * self.steps_per_semitone) / self.steps_per_semitone) / 2
         min_midi_with_buffer = self.min_midi - midi_buffer # MIDI 26
         max_midi_with_buffer = self.max_midi + midi_buffer # MIDI 94
 
         # 207 pitches
-        midi_vals = np.round(np.arange(min_midi_with_buffer, max_midi_with_buffer + 1 / self.steps_per_semitone, 1 / self.steps_per_semitone), 3)
-
-        print(len(midi_vals))
+        midi_vals = np.round(np.arange(min_midi_with_buffer, max_midi_with_buffer + 1, 1 / self.steps_per_semitone), 3)
 
         for midi in midi_vals:
             for state_type in range(3):
@@ -70,45 +70,90 @@ class NoteSegmentation():
             for j in range(n_states):
                 next_midi, next_state = states[j]
 
-                if curr_state == 0 and next_state == 1:
+                if curr_state == 0 and next_state == 1: # attack -> stable
                     trans_probs[i, j] = 1 - p_attack
-                elif curr_state == 1 and next_state == 2:
+                elif curr_state == 1 and next_state == 2: # stable -> silence
                     trans_probs[i, j] = 1 - p_stable
-                elif curr_state == next_state:
+                elif curr_state == next_state: # self transition
                     if curr_state == 0:
                         trans_probs[i, j] = p_attack
                     elif curr_state == 1:
                         trans_probs[i, j] = p_stable
                     elif curr_state == 2:
                         trans_probs[i, j] = p_silence
-                else:
-                    # Check if the transition is valid based on MIDI interval
+                elif curr_state == 2 and next_state == 0: # silence -> attack
                     interval = abs(next_midi - curr_midi)
+                    # Check if the transition is valid based on MIDI interval
                     if min_interval <= interval <= max_interval:
                         # new note
-                        if curr_state == 2 and next_state == 0:
-                            trans_probs[i, j] = (1 - p_silence) / (1 - interval)
+                        trans_probs[i, j] = (1 - p_silence) * (1 / interval)
 
+        trans_probs = trans_probs / np.sum(trans_probs, axis=1, keepdims=True)  # Normalize each row to sum to 1
         return trans_probs
 
     def _build_observation_matrix(self):
         # frames * states
-        pass
+        states = self._build_state()
+        n_states = len(states)
+        n_frames = len(self.pitch_estimates)
+        obs_probs = np.zeros((n_frames, n_states))
+
+        pitches = np.round(audio.hz_to_midi(self.pitch_estimates), 3)
+
+        for t in range(n_frames):
+            pitch = pitches[t]
+            
+            if pitch <= 0:
+                # unvoiced
+                obs_probs[t, :] = (1 - self.v) / n_states
+                continue
+            
+            h = np.zeros(n_states)
+
+            for i, (midi, state_type) in enumerate(states):
+                if state_type == 2:
+                    continue
+                sigma = self.sigma_attack if state_type == 0 else self.sigma_stable
+                # Gaussian observation model
+                exponent = -((pitch - midi) ** 2) / (2 * sigma ** 2)
+                # Calculate the observation probability for each state
+                gaussian = np.exp(exponent) / (sigma * np.sqrt(2 * np.pi))
+                # Scale the observation probability by the observation tau
+                h[i] = gaussian ** self.obs_tau
+            
+            z = np.sum(h)
+            
+            for j, (_, state_type) in enumerate(states):
+                if state_type == 2:
+                    obs_probs[t, j] = 1e-12
+                else:
+                    obs_probs[t, j] = self.v * (h[j] / z) if z > 1e-12 else 1e-12
+
+        return obs_probs
 
     def _viterbi_decoding(self):
-        trans_probs = self._build_transition_matrix()
-        obs_probs = self._build_observation_matrix()
-        pass
+        log_trans_matrix = np.log(self._build_transition_matrix() + 1e-12)
+        log_obs_matrix = np.log(self._build_observation_matrix() + 1e-12)
+        n_frames, n_states = log_obs_matrix.shape
 
-    def plot_transition_matrix(self):
-        trans_matrix = self._build_transition_matrix()
-        # Plot a subset of the transition matrix for better visibility
-        subset_size = 30  # Number of states to show (change as needed)
-        plt.figure(figsize=(8, 6))
-        plt.imshow(trans_matrix[:subset_size, :subset_size], aspect='auto', origin='lower', interpolation='nearest', cmap='magma')
-        plt.colorbar(label='Transition Probability')
-        plt.xlabel('Next State Index (subset)')
-        plt.ylabel('Current State Index (subset)')
-        plt.title(f'Transition Matrix Subset (First {subset_size} States)')
-        plt.tight_layout()
-        plt.show()
+        viterbi = np.full((n_frames, n_states), -np.inf)
+        backpathpointer = np.zeros((n_frames, n_states), dtype=int)
+        beststates = np.zeros(n_frames, dtype=int)
+
+        viterbi[0, :] = log_obs_matrix[0, :]
+
+        # --- Recursion ---
+        for t in range(1, n_frames):
+            for j in range(n_states):
+                trans_probs = viterbi[t - 1, :] + log_trans_matrix[:, j]
+                backpathpointer[t, j] = np.argmax(trans_probs)
+                viterbi[t, j] = np.max(trans_probs) + log_obs_matrix[t, j]
+
+        # --- Termination ---
+        beststates[-1] = np.argmax(viterbi[-1, :])
+        for t in range(n_frames - 2, -1, -1):
+            beststates[t] = backpathpointer[t + 1, beststates[t + 1]]
+
+        print(beststates)
+
+        return beststates
