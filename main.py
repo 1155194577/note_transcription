@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from modules.Pyin import PyinPitchExtractor
 from modules.PitchSmoother import PitchSmoother
+from modules.NoteSegmentation import NoteSegmentation
 
 
 def pitch_extraction(signal, sr=22050):
@@ -33,8 +34,10 @@ def hmm_smoothing(f0_candidates, f0_probs, sr=22050):
     f0_smoothed = pitch_smoother._state_to_freq(beststates, obs_matrix=obs_matrix)
     return f0_smoothed, obs_matrix, pitch_smoother, viterbi
 
-def note_segmentation():
-    pass 
+def note_segmentation(f0_smoothed):
+    note_segmenter = NoteSegmentation()
+    best_states = note_segmenter._viterbi_decoding(f0_smoothed)
+    return best_states
 
 def main():
     # Generate a 440 Hz sine wave signal
@@ -48,6 +51,10 @@ def main():
     print('Probabilities:', f0_probs)
     f0_smoothed, obs_matrix, pitch_smoother, viterbi = hmm_smoothing(f0_candidates, f0_probs, sr=sr)
     print('Smoothed:', f0_smoothed)
+
+    # --- Note Segmentation ---
+    best_states = note_segmentation(f0_smoothed)
+    print('Note states:', best_states)
 
     # Plotting
     plt.figure(figsize=(12, 6))
