@@ -15,11 +15,12 @@ class NoteSegmentation():
                  obs_tau = 0.1,
                  v = 0.5,
                  sigma_attack = 5,
-                 sigma_stable = 0.9):
+                 sigma_stable = 0.9,
+                 min_duration = 0.1):
         self.sample_rate = sample_rate
         self.frame_length = frame_length
         self.hop_size = hop_size if hop_size is not None else frame_length // 4
-        self.frame_time = self.frame_length / self.sample_rate # seconds
+        self.frame_time = self.hop_size / self.sample_rate # seconds
 
         self.states_type = ["Attack", "Stable", "Silence"] # 0: attack, 1: stable, 2: silence
 
@@ -32,6 +33,7 @@ class NoteSegmentation():
         self.obs_tau = obs_tau # observation tau
         self.sigma_attack = sigma_attack # semitones
         self.sigma_stable = sigma_stable # semitones
+        self.min_duration = min_duration # seconds, minimum duration of a note to be considered valid
 
     def _build_state(self):
         states = []
@@ -156,5 +158,3 @@ class NoteSegmentation():
 
         return beststates
     
-    def post_process(self, states):
-        pass

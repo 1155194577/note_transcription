@@ -128,11 +128,11 @@ class PitchSmoother():
             elif bin_idx >= self.n_bins:
                 # Unvoiced state
                 f0[i] = 0.0
-        return f0
+        return self._interpolate_zeros(f0)
     
-    # def _interpolate_zeros(self, f0):
-    #     # fill gaps in the pitch contour
-    #     nonzero = np.where(f0 > 0)[0]
-    #     if len(nonzero) == 0:
-    #         return f0  # All zeros; nothing to do
-    #     return np.interp(np.arange(len(f0)), nonzero, f0[nonzero])
+    def _interpolate_zeros(self, f0):
+        # fill gaps in the pitch contour
+        nonzero = np.where(f0 > 0)[0]
+        if len(nonzero) == 0:
+            return f0  # All zeros; nothing to do
+        return np.interp(np.arange(len(f0)), nonzero, f0[nonzero])

@@ -3,7 +3,7 @@ import numpy as np
 def hz_to_midi(freq):
     """Convert frequency in Hz to MIDI note number. e.g. 440Hz -> 69"""
     freq = np.asarray(freq, dtype=float)
-    return 69 + 12 * np.log2(freq / 440.0)
+    return 69 + 12 * np.log2(freq / 440.0 + 1e-12)
 
 def midi_to_hz(midi):
     """Convert MIDI note number to frequency in Hz. e.g. 69 -> 440Hz"""

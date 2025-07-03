@@ -1,9 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+import os
+import mido
+import librosa
 from modules.Pyin import PyinPitchExtractor
 from modules.PitchSmoother import PitchSmoother
 from modules.NoteSegmentation import NoteSegmentation
-
 
 def pitch_extraction(signal, sr=22050):
     # Use PyinPitchExtractor to extract pitch candidates and probabilities
@@ -37,60 +40,103 @@ def hmm_smoothing(f0_candidates, f0_probs, sr=22050):
 def note_segmentation(f0_smoothed):
     note_segmenter = NoteSegmentation()
     best_states = note_segmenter._viterbi_decoding(f0_smoothed)
-    return best_states
+    notes = note_segmenter.post_process(best_states)
+    return notes
 
 def main():
-    # Generate a 440 Hz sine wave signal
-    sr = 22050
-    T = 1.0  # seconds
-    t = np.linspace(0, T, int(sr * T), endpoint=False)
-    signal = 0.5 * np.sin(2 * np.pi * 440 * t)
+    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+    if project_root not in sys.path:
+        sys.path.append(project_root)
 
-    f0_candidates, f0_probs, time_series = pitch_extraction(signal, sr=sr)
-    print('Candidates:', f0_candidates)
-    print('Probabilities:', f0_probs)
-    f0_smoothed, obs_matrix, pitch_smoother, viterbi = hmm_smoothing(f0_candidates, f0_probs, sr=sr)
-    print('Smoothed:', f0_smoothed)
+    # Generate a 440 Hz sine wave signal
+    # sr = 22050
+    # T = 1.0  # seconds
+    # t = np.linspace(0, T, int(sr * T), endpoint=False)
+    # signal = 0.5 * np.sin(2 * np.pi * 440 * t)
+    signal, sr = librosa.load('./analysis/birds_of_feather.wav')
+    print(f"Signal shape: {signal.shape}, Sample rate: {sr}")
+
+    # f0_candidates, f0_probs, time_series = pitch_extraction(signal, sr=sr)
+    # print('Candidates:', f0_candidates)
+    # print('Probabilities:', f0_probs)
+    # f0_smoothed, obs_matrix, pitch_smoother, viterbi = hmm_smoothing(f0_candidates, f0_probs, sr=sr)
+    # print('Smoothed:', f0_smoothed)
+    f0_smoothed, voiced_prob, voiced_flag = librosa.pyin(signal, fmin=65, fmax=2093, sr=sr)
 
     # --- Note Segmentation ---
-    best_states = note_segmentation(f0_smoothed)
-    print('Note states:', best_states)
+    post_processed = note_segmentation(f0_smoothed)
+    print('Note states:', post_processed)
 
     # Plotting
-    plt.figure(figsize=(12, 6))
-    # Plot candidate frequencies as a scatter plot
-    for i, (tt, cands, probs) in enumerate(zip(time_series, f0_candidates, f0_probs)):
-        if len(cands) > 0:
-            plt.scatter([tt]*len(cands), cands, c=probs, cmap='viridis', vmin=0, vmax=1, marker='o', s=30, alpha=0.6, edgecolors='none')
-    # Plot smoothed pitch track
-    plt.plot(time_series, f0_smoothed, color='red', linewidth=2, label='Smoothed Pitch')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Frequency (Hz)')
-    plt.title('Pitch Candidates and Smoothed Track (PYIN + HMM)')
-    plt.ylim(0, 2000)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    # plt.figure(figsize=(12, 6))
+    # # Plot candidate frequencies as a scatter plot
+    # for i, (tt, cands, probs) in enumerate(zip(time_series, f0_candidates, f0_probs)):
+    #     if len(cands) > 0:
+    #         plt.scatter([tt]*len(cands), cands, c=probs, cmap='viridis', vmin=0, vmax=1, marker='o', s=30, alpha=0.6, edgecolors='none')
+    # # Plot smoothed pitch track
+    # plt.plot(time_series, f0_smoothed, color='red', linewidth=2, label='Smoothed Pitch')
+    # plt.xlabel('Time (s)')
+    # plt.ylabel('Frequency (Hz)')
+    # plt.title('Pitch Candidates and Smoothed Track (PYIN + HMM)')
+    # plt.ylim(0, 2000)
+    # plt.legend()
+    # plt.tight_layout()
+    # plt.show()
 
-    # Plot observation matrix as a heatmap
-    plt.figure(figsize=(12, 6))
-    plt.imshow(obs_matrix.T, aspect='auto', origin='lower', interpolation='nearest', cmap='magma')
-    plt.colorbar(label='Observation Probability')
-    plt.xlabel('Frame Index')
-    plt.ylabel('State Index (0: voiced bins, n_bins: unvoiced bins)')
-    plt.title('Observation Matrix (PYIN HMM)')
-    plt.tight_layout()
-    plt.show()
+    # # Plot observation matrix as a heatmap
+    # plt.figure(figsize=(12, 6))
+    # plt.imshow(obs_matrix.T, aspect='auto', origin='lower', interpolation='nearest', cmap='magma')
+    # plt.colorbar(label='Observation Probability')
+    # plt.xlabel('Frame Index')
+    # plt.ylabel('State Index (0: voiced bins, n_bins: unvoiced bins)')
+    # plt.title('Observation Matrix (PYIN HMM)')
+    # plt.tight_layout()
+    # plt.show()
 
-    # Plot Viterbi trellis (log-probability matrix)
-    plt.figure(figsize=(12, 6))
-    plt.imshow(viterbi.T, aspect='auto', origin='lower', interpolation='nearest', cmap='Blues')
-    plt.colorbar(label='Log Viterbi Probability')
-    plt.xlabel('Frame Index')
-    plt.ylabel('State Index')
-    plt.title('Viterbi Trellis (Dynamic Programming Table)')
-    plt.tight_layout()
-    plt.show()
+    # # Plot Viterbi trellis (log-probability matrix)
+    # plt.figure(figsize=(12, 6))
+    # plt.imshow(viterbi.T, aspect='auto', origin='lower', interpolation='nearest', cmap='Blues')
+    # plt.colorbar(label='Log Viterbi Probability')
+    # plt.xlabel('Frame Index')
+    # plt.ylabel('State Index')
+    # plt.title('Viterbi Trellis (Dynamic Programming Table)')
+    # plt.tight_layout()
+    # plt.show()
+
+    # Save the smoothed pitch to a MIDI file# Create a new MIDI file and track
+    mid = mido.MidiFile()
+    track = mido.MidiTrack()
+    mid.tracks.append(track)
+
+    # Set tempo (default 500000 microseconds per beat = 120 BPM)
+    tempo = 500000
+    track.append(mido.MetaMessage('set_tempo', tempo=tempo))
+
+    # MIDI time conversion helpers
+    def seconds_to_ticks(seconds, tempo, ticks_per_beat):
+        beats = seconds * 1e6 / tempo
+        return int(beats * ticks_per_beat)
+
+    ticks_per_beat = mid.ticks_per_beat
+
+    # Sort notes by start_time
+    notes_sorted = sorted(post_processed, key=lambda n: n['start_time'])
+
+    last_tick = 0
+    for note in notes_sorted:
+        midi_pitch = int(round(note['midi_pitch']))
+        start_tick = seconds_to_ticks(note['start_time'], tempo, ticks_per_beat)
+        end_tick = seconds_to_ticks(note['end_time'], tempo, ticks_per_beat)
+        duration = end_tick - start_tick
+
+        # Add note_on
+        track.append(mido.Message('note_on', note=midi_pitch, velocity=64, time=start_tick - last_tick))
+        # Add note_off
+        track.append(mido.Message('note_off', note=midi_pitch, velocity=64, time=duration))
+        last_tick = end_tick
+
+    # Save to file
+    mid.save('librosa_output.mid')
 
 if __name__ == "__main__":
     main()
