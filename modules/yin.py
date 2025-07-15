@@ -27,7 +27,9 @@ class YinPitchExtractor:
 
     def _difference_function(self, frame: np.ndarray) -> np.ndarray:
         acf = self._auto_correlation_function(frame)
-        difference = 2 * (acf[0] - acf)
+        yin_frame = np.square(frame)
+        np.cumsum(yin_frame, out=yin_frame)
+        difference = 2 * (acf[0] - acf) - yin_frame
         return difference
 
     def _cumulative_mean_normalized_difference_function(self, difference: np.ndarray) -> np.ndarray:
@@ -38,11 +40,13 @@ class YinPitchExtractor:
         cmndf[0] = 1.0
         return cmndf
     
-    def _parabolic_interpolation(self, cmndf: np.ndarray, index: int):
+    def _parabolic_interpolation(self, cmndf: np.ndarray, index):
         alpha = cmndf[index - 1]
         beta = cmndf[index]
         gamma = cmndf[index + 1]
 
-        if (2 * beta - alpha - gamma) == 0:
-            return index
-        return index + (gamma - alpha) / (2 * (2 * beta - alpha - gamma))
+        denom = 2 * beta - alpha - gamma
+
+        offset = (gamma - alpha) / (2 * denom)
+
+        return offset

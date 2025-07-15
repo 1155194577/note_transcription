@@ -11,9 +11,9 @@ class PitchSmoother():
                  hop_size=None,
                  fmin=65, 
                  fmax=2093, 
-                 bins_per_semitone=5, 
+                 bins_per_semitone=10, 
                  voicing_prob=0.5,
-                 switch_prob=0.05,
+                 switch_prob=0.01,
                  max_jump_semitones=2.5):
         self.sample_rate = sample_rate,
         self.window_size = window_size,
@@ -29,12 +29,12 @@ class PitchSmoother():
 
         # Discretize pitch space
         self.n_semitones = 12 * np.log2(fmax / fmin) # number of semitones, e.g. 55Hz ~ 880Hz would have 48 semitones
-        self.n_bins = int(np.ceil(self.n_semitones * bins_per_semitone)) # number of bins (e.g.) between 55Hz and 880Hz
+        self.n_bins = int(np.floor(self.n_semitones * bins_per_semitone)) + 1 # number of bins (e.g.) between 55Hz and 880Hz
         self.midi_min = hz_to_midi(fmin) # minimum midi note number
         self.midi_max = hz_to_midi(fmax) # maximum midi note number
         self.bin_edges = np.linspace(self.midi_min, self.midi_max, self.n_bins + 1) # discretization, each element is the bin edge with the format of midi note number
         self.bin_centers = (self.bin_edges[:-1] + self.bin_edges[1:]) / 2 # midi note number of each bin center
-        self.bin_freqs = midi_to_hz(self.bin_centers) # convert bin center to bin freq
+        self.bin_freqs = self.fmin * 2 ** (np.arange(self.n_bins) / (12 * self.bins_per_semitone))
 
         # maximum number of bins per jump, used in triangular weight distribution
         self.max_jump_bins = int(np.ceil(max_jump_semitones * bins_per_semitone))
@@ -59,9 +59,12 @@ class PitchSmoother():
             for j, cand_bin_idx in enumerate(cands_bin_indices):
                 obs_probs[i, cand_bin_idx] += frame_prob[j]
 
-            # unvoiced part: small uniform probability
-            obs_probs[i, self.n_bins:] = 1e-4
-            obs_probs[i, :] /= np.sum(obs_probs[i, :])
+            # # unvoiced part: small uniform probability
+            # obs_probs[i, self.n_bins:] = (1 - self.voicing_prob) / self.n_bins
+            # obs_probs[i, :] /= np.sum(obs_probs[i, :])
+        voiced_prob = np.clip(np.sum(obs_probs[:, :self.n_bins], axis=1, keepdims=True), 0, 1)
+        obs_probs[:, self.n_bins:] = (1 - voiced_prob) / self.n_bins
+
         return obs_probs
 
     def _build_pitch_transition_matrix(self): 
@@ -112,27 +115,32 @@ class PitchSmoother():
 
         return beststates
     
-    def _state_to_freq(self, states, obs_matrix=None, voicing_threshold=0.3):
-        f0 = np.zeros_like(states, dtype=float)
-        for i, bin_idx in enumerate(states):
-            if 0 <= bin_idx < self.n_bins:
-                # Voiced state
-                if obs_matrix is not None:
-                    voiced_prob = np.max(obs_matrix[i, :self.n_bins])
-                    if voiced_prob >= voicing_threshold:
-                        f0[i] = self.bin_freqs[bin_idx]
-                    else:
-                        f0[i] = 0.0
-                else:
-                    f0[i] = self.bin_freqs[bin_idx]
-            elif bin_idx >= self.n_bins:
-                # Unvoiced state
-                f0[i] = 0.0
-        return self._interpolate_zeros(f0)
-    
-    def _interpolate_zeros(self, f0):
-        # fill gaps in the pitch contour
-        nonzero = np.where(f0 > 0)[0]
-        if len(nonzero) == 0:
-            return f0  # All zeros; nothing to do
-        return np.interp(np.arange(len(f0)), nonzero, f0[nonzero])
+    def _state_to_freq(self, states: np.ndarray, obs_matrix: np.ndarray = None, **kwargs) -> np.ndarray:
+        # Initialize output
+        f0 = np.zeros(len(states))
+        
+        # Get voiced frames (states < n_bins are voiced)
+        voiced_flag = states < self.n_bins
+        
+        # Convert states to frequencies (modulo handles HMM's 2*n_bins structure)
+        f0[voiced_flag] = self.bin_freqs[states[voiced_flag] % self.n_bins]
+        f0[~voiced_flag] = np.nan
+        
+        # Optional: Apply observation probability threshold (librosa default: 0.1)
+        if obs_matrix is not None:
+            voiced_probs = np.max(obs_matrix[:, :self.n_bins], axis=1)
+            threshold = kwargs.get('min_voiced_prob', 0.1)
+            f0[voiced_probs < threshold] = np.nan
+
+        if len(f0) != 0:
+            midi = hz_to_midi(f0)
+            valid = ~np.isnan(midi)
+            for i in range(1, len(f0)):
+                if valid[i] and valid[i-1]:
+                    semitone_jump = abs(midi[i] - midi[i-1])
+                    if semitone_jump > self.max_jump_semitones:
+                        f0[i] = np.nan  # Mark jump as NaN
+
+        f0[f0 > 1000] = np.nan
+        
+        return f0

@@ -9,6 +9,13 @@ def midi_to_hz(midi):
     """Convert MIDI note number to frequency in Hz. e.g. 69 -> 440Hz"""
     return 440.0 * 2 ** ((midi - 69) / 12)
 
+def compute_energy_mask(amplitude, percentile=25, min_db=-27.8):
+    """Generate boolean mask for frames above energy threshold."""
+    energy_db = 10 * np.log10(amplitude / (np.max(amplitude) + 1e-12))
+    threshold = np.percentile(energy_db[energy_db > -np.inf], percentile)
+    threshold = max(threshold, min_db)  # Ensure not too sensitive
+    return energy_db > threshold
+
 def split_audio(y: np.ndarray, frame_length: int, hop_size: int) -> list[np.ndarray]:
     """
     Split an audio signal into overlapping frames.
@@ -21,7 +28,7 @@ def split_audio(y: np.ndarray, frame_length: int, hop_size: int) -> list[np.ndar
     Returns:
         frames: list of 1D numpy array where each element is a frame of the signal
     """
-    num_frames = 1 + (len(y) - frame_length) // hop_size
+    num_frames = len(y)// hop_size
     
     if num_frames <= 0:
         return []

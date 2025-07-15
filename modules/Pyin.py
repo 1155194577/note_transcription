@@ -57,16 +57,26 @@ class PyinPitchExtractor(YinPitchExtractor):
     def _assign_probabilities(self, local_minimas: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """PYIN version with beta and Boltzmann distributions"""
         local_minimas_probs = np.zeros_like(local_minimas)
+        total_prob = 0.0
+
         for i, threshold in enumerate(self.thresholds[1:]):
             below_threshold = local_minimas < threshold
             if np.any(below_threshold):
-                probs = self._boltzmann(local_minimas, below_threshold)
-                local_minimas_probs[below_threshold] += probs * self.beta_prob[i]
+                periods = self.min_lag + np.where(below_threshold)[0]
+                boltzmann_weights = np.exp(-periods / self.sample_rate * self.boltzmann_param)
+                
+                # 2. Beta distribution weighting (prefer lower thresholds)
+                weighted_probs = boltzmann_weights * self.beta_prob[i]
+                
+                local_minimas_probs[below_threshold] += weighted_probs
+                total_prob += np.sum(weighted_probs)
 
-        total_prob = np.sum(local_minimas_probs)
+        # total_prob = np.sum(local_minimas_probs)
         if total_prob > 0:
             local_minimas_probs = local_minimas_probs * (1 - self.no_local_minimum_prob) / total_prob
-        
+            global_min_index = np.argmin(local_minimas)
+            local_minimas_probs[global_min_index] += self.no_local_minimum_prob
+
         return local_minimas, local_minimas_probs
     
     def _frame_wise_pitch_extraction(self, frame: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -78,15 +88,14 @@ class PyinPitchExtractor(YinPitchExtractor):
         filtered_minima, filtered_index = self._filter_local_minimas(local_minima, minima_index)
 
         for idx in filtered_index:
-            idx = self._parabolic_interpolation(cmndf_vals, idx)
+            idx += self._parabolic_interpolation(cmndf_vals, idx)
 
-        if len(filtered_minima) == 0:
-            global_min_idx = np.argmin(cmndf_vals[self.min_lag:self.max_lag]) + self.min_lag
-            f0 = self.sample_rate / global_min_idx
-            return np.array([f0]), np.array([1.0])
+        _, probs = self._assign_probabilities(filtered_minima)
 
         f0_candidates = self.sample_rate / filtered_index
-        _, probs = self._assign_probabilities(filtered_minima)
+        valid_mask = (f0_candidates >= self.fmin) & (f0_candidates <= self.fmax)
+        f0_candidates = f0_candidates[valid_mask]
+        probs = probs[valid_mask]
         
         return f0_candidates, probs
     

@@ -41,8 +41,8 @@ class NoteSegmentation():
         # MIDI buffer to ensure that the range of MIDI values is sufficient
         # to cover the range of pitches, considering the steps per semitone.
         midi_buffer = ((self.n_pitches - (self.max_midi - self.min_midi + 1) * self.steps_per_semitone) / self.steps_per_semitone) / 2
-        min_midi_with_buffer = self.min_midi - midi_buffer # MIDI 26
-        max_midi_with_buffer = self.max_midi + midi_buffer # MIDI 94
+        min_midi_with_buffer = self.min_midi # MIDI 35
+        max_midi_with_buffer = self.max_midi + 2 * midi_buffer # MIDI 103
 
         # 207 pitches
         midi_vals = np.round(np.arange(min_midi_with_buffer, max_midi_with_buffer + 1, 1 / self.steps_per_semitone), 3)
@@ -71,9 +71,13 @@ class NoteSegmentation():
                 next_midi, next_state = states[j]
 
                 if curr_state == 0 and next_state == 1: # attack -> stable
-                    trans_probs[i, j] = 1 - p_attack
+                    if curr_midi == next_midi:
+                        trans_probs[i, j] = 1 - p_attack
+                    else: trans_probs[i, j] = 0
                 elif curr_state == 1 and next_state == 2: # stable -> silence
-                    trans_probs[i, j] = 1 - p_stable
+                    if curr_midi == next_midi:
+                        trans_probs[i, j] = 1 - p_stable
+                    else: trans_probs[i, j] - 0
                 elif curr_state == next_state: # self transition
                     if curr_state == 0:
                         trans_probs[i, j] = p_attack
@@ -87,6 +91,7 @@ class NoteSegmentation():
                     if min_interval <= interval <= max_interval:
                         # new note
                         trans_probs[i, j] = (1 - p_silence) * (1 / interval)
+                    else: trans_probs[i, j] = 0
 
         trans_probs = trans_probs / np.sum(trans_probs, axis=1, keepdims=True)  # Normalize each row to sum to 1
         return trans_probs
@@ -103,11 +108,15 @@ class NoteSegmentation():
         for t in range(n_frames):
             pitch = pitches[t]
             
-            if pitch <= 0:
+            if pitch <= 0 or pitch == np.nan:
                 # unvoiced
-                obs_probs[t, :] = (1 - self.v) / n_states
+                silence_states = [idx for idx, (_, st) in enumerate(states) if st == 2]
+                prob = (1 - self.v) / len(silence_states)
+                
+                for j in range(n_states):
+                    # Assign probability only to silence states
+                    obs_probs[t, j] = prob if j in silence_states else 1e-12
                 continue
-            
             h = np.zeros(n_states)
 
             for i, (midi, state_type) in enumerate(states):
@@ -117,7 +126,7 @@ class NoteSegmentation():
                 # Gaussian observation model
                 exponent = -((pitch - midi) ** 2) / (2 * sigma ** 2)
                 # Calculate the observation probability for each state
-                gaussian = np.exp(exponent) / (sigma * np.sqrt(2 * np.pi))
+                gaussian = np.exp(exponent) # / (sigma * np.sqrt(2 * np.pi))
                 # Scale the observation probability by the observation tau
                 h[i] = gaussian ** self.obs_tau
             
@@ -157,4 +166,175 @@ class NoteSegmentation():
         print(beststates)
 
         return beststates
+
+    def post_process(self, state_sequence, amplitude=None):
+        # state_sequence: (n_frames, )
+        # self.amplitude = amplitude  # Optional amplitude data for onset refinement
+        states = self._build_state()
+        notes = []
+        current_note = None
+
+        amplitude = np.clip(amplitude, 1e-12, None)  # Avoid division by zero
+
+        window_ms = 0.046  # From paper's 2048-sample window at 22050Hz
+
+        # First pass: Create raw note segments
+        for t, state_idx in enumerate(state_sequence):
+            midi_pitch, state_type = states[state_idx]
+            
+            # Silence state handling
+            if state_type == 2:
+                if current_note:
+                    current_note['end_frame'] = t - 1
+                    current_note['end_time'] = t * self.frame_time
+                    if current_note['end_frame'] >= current_note['start_frame']:
+                        notes.append(current_note)
+                    current_note = None
+                continue
+            
+            # Attack state starts new note -> onset
+            if state_type == 0:
+                if current_note:
+                    current_note['end_frame'] = t - 1
+                    current_note['end_time'] = t * self.frame_time
+                    if current_note['end_frame'] >= current_note['start_frame']:
+                        notes.append(current_note)
+                current_note = {
+                    'midi_pitch': midi_pitch,
+                    'start_frame': t,
+                    'end_frame': t,
+                    'start_time': t * self.frame_time,
+                    'end_time': (t + 1) * self.frame_time,
+                    'state_sequence': [state_idx],
+                    'state_type': 0
+                }
+            # Stable state extends note
+            elif state_type == 1:
+                if current_note and current_note['midi_pitch'] == midi_pitch:
+                    current_note['end_frame'] = t
+                    current_note['end_time'] = (t + 1) * self.frame_time
+                    current_note['state_sequence'].append(state_idx)
+                else:
+                    if current_note:
+                        current_note['end_frame'] = t - 1
+                        current_note['end_time'] = t * self.frame_time
+                        if current_note['end_frame'] >= current_note['start_frame']:
+                            notes.append(current_note)
+                    current_note = {
+                        'midi_pitch': midi_pitch,
+                        'start_frame': t,
+                        'end_frame': t,
+                        'start_time': t * self.frame_time,
+                        'end_time': (t + 1) * self.frame_time,
+                        'state_sequence': [state_idx],
+                        'state_type': 1
+                    }
+        
+        # Finalize last note
+        if current_note and current_note['end_frame'] >= current_note['start_frame']:
+            notes.append(current_note)
+        
+        # Refine onsets
+        for i, note in enumerate(notes):
+            max_rise = 0
+            best_j = None
+
+            search_start = max(1, int(round(note['start_time'] - window_ms) / self.frame_time))
+            search_end = min(len(amplitude) - 1, int(round((note['start_time'] + window_ms) / self.frame_time)))
+            
+            for j in range(search_start, search_end):
+                if amplitude[j - 1] < 1e-12 or amplitude[j + 1] < 1e-12:
+                    continue
+                if amplitude[j - 1] > 1e-12:
+                    rise = amplitude[j + 1] / amplitude[j - 1]
+                    if rise > 1 / 0.6 and rise > max_rise:
+                        max_rise = rise
+                        best_j = j
+            
+            if best_j is not None:
+                print(best_j)
+
+                new_start = best_j * self.frame_time
+                if i > 0 and new_start < notes[i - 1]['end_time']:
+                    new_start = notes[i - 1]['end_time']
+
+                note['start_time'] = new_start
+
+        # Third pass: Merge adjacent notes
+        notes = self.merge_notes(notes)
+        
+        # Add metadata and clean up
+        for note in notes:
+            # note['start_time'] = note['start_frame'] * self.frame_time
+            # note['end_time'] = (note['end_frame'] + 1) * self.frame_time
+            note['duration'] = note['end_time'] - note['start_time']
+            note['frequency'] = audio.midi_to_hz(note['midi_pitch'])
+            note['confidence'] = len(note['state_sequence']) / (note['end_frame'] - note['start_frame'] + 1)
+            del note['state_sequence']
+
+        for i, note in enumerate(notes):
+            if note['midi_pitch'] == 0:# or note['duration'] < self.min_duration:
+                notes.remove(notes[i])
+
+        # # Filter out notes that are too short
+        notes = [note for note in notes if (note['end_frame'] - note['start_frame'] + 1) * self.frame_time >= self.min_duration]
+
+        return notes
+        
+    def merge_notes(self, notes):
+        merged = []
+        for note in notes:
+            if not merged:
+                merged.append(note)
+                continue
+            last = merged[-1]
+            gap = abs(note['start_time'] - last['end_time'])
+            if (abs(note['midi_pitch'] - last['midi_pitch']) <= 1.5 and 
+                gap <= 9.5 * self.frame_time):
+                last['end_time'] = note['start_time']
+                last['end_frame'] = note['start_frame']
+                last['state_sequence'].extend(note['state_sequence'])
+            else:
+                if note['start_time'] < last['end_time']:
+                    last['end_time'] = note['start_time']
+                    last['end_frame'] = note['start_frame']
+                merged.append(note)
+        return merged
+
+    # def refine_onset(self, start_frame):
+    #     """
+    #     Robust onset refinement with:
+    #     - Full None/edge-case handling
+    #     - Exact paper-specified amplitude rise ratio
+    #     - Frame-accurate timing
+    #     """
+    #     # Safeguard 1: Check amplitude exists and has enough samples
+    #     if (not hasattr(self, 'amplitude') or 
+    #         (self.amplitude is None) or 
+    #         (len(self.amplitude) < 3)):
+    #         print("Amplitude data not available for onset refinement, using original start frame.")
+    #         return start_frame  # Fallback to original if no amplitude data
+        
+    #     # Safeguard 2: Validate start_frame within bounds
+    #     start_frame = int(np.clip(start_frame, 1, len(self.amplitude)-2))
+        
+    #     # Convert paper's ≈46ms analysis window to frames
+    #     window_ms = 46  # From paper's 2048-sample window at 22050Hz
+    #     window_frames = int(round(window_ms / (self.frame_time * 1000)))
+    #     search_start = max(1, start_frame - window_frames)
+    #     search_end = min(len(self.amplitude)-1, start_frame + window_frames)
+        
+    #     max_rise = 0
+    #     best_idx = start_frame
+        
+    #     # Paper's exact rise ratio: r = a_{i+1}/a_{i-1}
+    #     for i in range(search_start, search_end):
+    #         with np.errstate(divide='ignore', invalid='ignore'):
+    #             if self.amplitude[i-1] > 0:
+    #                 rise = self.amplitude[i+1] / self.amplitude[i-1]
+    #                 # Paper's condition: if (1/r < s) where s ≥ 0.6
+    #                 if rise > (1/0.6) and rise > max_rise:  # ≡ 1/r < 0.6
+    #                     max_rise = rise
+    #                     best_idx = i
     
+    #     return best_idx
